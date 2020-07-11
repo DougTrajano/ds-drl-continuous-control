@@ -62,7 +62,7 @@ class Agent():
         # Define memory
         self.memory = ReplayMemory(self.memory_size, self.batch_size)
 
-    def step(self, state, action, reward, next_state, done, i):
+    def step(self, state, action, reward, next_state, done):
         """Save experience in replay memory, and use random sample from buffer to learn."""
         # Save experience / reward
         self.memory.add(state, action, reward, next_state, done)
