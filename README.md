@@ -10,11 +10,11 @@ We have two versions for this Unity environment:
 
 #### Version 1: One (1) Agent
 
-<img src="https://www.katnoria.com/static/singleplayer-18f6053955fdb4e6d4a4a470f20199ab.gif" alt="Reacher Environment - One Agent" width="500" height="300">
+<img src="images/reacher-environment_one-agent.gif" alt="Reacher Environment - One Agent" width="500" height="300">
 
 #### Version 2: Twenty (20) Agents
 
-<img src="https://user-images.githubusercontent.com/10624937/43851024-320ba930-9aff-11e8-8493-ee547c6af349.gif" alt="Reacher Environment - Multi Agent" width="500" height="300">
+<img src="images/reacher-environment_multi-agent.gif" alt="Reacher Environment - Multi Agent" width="500" height="300">
 
 This project is part of my [Deep Reinforcement Learning Nanodegree](https://www.udacity.com/course/deep-reinforcement-learning-nanodegree--nd893).
 
