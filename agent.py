@@ -1,45 +1,57 @@
 import numpy as np
 import random
+import json
 import copy
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from collections import namedtuple, deque
 from sklearn.base import BaseEstimator
+
 from model import Actor, Critic
 from memory import ReplayMemory
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
+print("Running on device:", device)
 
 class Agent(BaseEstimator):
     """Interacts with and learns from the environment."""
+    memory = None
+    actor_local = None
+    actor_target = None
+    actor_optimizer = None
 
-    def __init__(self, state_size, action_size, seed=399, lr_actor=1e-4, lr_critic=1e-4,
-                 memory_size=int(1e6), batch_size=128, gamma=0.99, tau=1e-3, weight_decay=0,
-                 actor_units=(256, 128), critic_units=(256, 128), action_min=-1, action_max=1):
+    critic_local = None
+    critic_target = None
+    critic_optimizer = None
+
+    def __init__(self, state_size, action_size, random_seed=399, memory_size=int(1e6), batch_size=128,
+                gamma=0.99, tau=1e-3, lr_actor=1e-4, lr_critic=1e-4, weight_decay=0.0, actor_units=(256, 128),
+                critic_units=(256, 128), action_min=-1, action_max=1):
         """Initialize an Agent object.
+
         Params
         ======
             state_size (int): dimension of each state
             action_size (int): dimension of each action
-            seed (int): random seed
-            lr_actor (float): learning rate for actor model
-            lr_critic (float): learning rate for critic model
+            random_seed (int): random seed
             memory_size (int): The total amount of memory to save experiences
-            prioritized_memory (bool): Use prioritized memory (takes more time in the training session)
             batch_size (int): subset size for each training step
             gamma (float): discount factor
             tau (float): interpolation parameter
+            lr_actor (float): learning rate for actor model
+            lr_critic (float): learning rate for critic model
             weight_decay (float): L2 weight decay
             actor_units (tuple): A tuple with numbers of nodes in 1st and 2nd hidden layer for actor network
             critic_units (tuple): A tuple with numbers of nodes in 1st and 2nd hidden layer for critic network
             action_min (int or float): The min value in the action range
             action_max (int or float): The max value in the action range
+
         """
         self.state_size = state_size
         self.action_size = action_size
-        self.seed = seed
+        self.seed = random.seed(random_seed)
+        self.random_seed = random_seed
         self.lr_actor = lr_actor
         self.lr_critic = lr_critic
         self.memory_size = memory_size
@@ -51,49 +63,57 @@ class Agent(BaseEstimator):
         self.critic_units = critic_units
         self.action_min = action_min
         self.action_max = action_max
-
-        np.random.seed(self.seed)
         
         # Actor Network (w/ Target Network)
-        self.actor_local = Actor(state_size, action_size, seed,
-                                 fc1_units=self.actor_units[0], fc2_units=self.actor_units[1]).to(device)
-        self.actor_target = Actor(state_size, action_size, seed,
-                                 fc1_units=self.actor_units[0], fc2_units=self.actor_units[1]).to(device)
+        if Agent.actor_local is None:
+            Agent.actor_local = Actor(self.state_size, self.action_size, self.random_seed,
+                                      fc1_units=self.actor_units[0], fc2_units=self.actor_units[1]).to(device)
+        if Agent.actor_target is None:
+            Agent.actor_target = Actor(self.state_size, self.action_size, self.random_seed,
+                                       fc1_units=self.actor_units[0], fc2_units=self.actor_units[1]).to(device)
+        if Agent.actor_optimizer is None:
+            Agent.actor_optimizer = optim.Adam(Agent.actor_local.parameters(), lr=self.lr_actor)
+            
+        self.actor_local = Agent.actor_local
+        self.actor_target = Agent.actor_target
+        self.actor_optimizer = Agent.actor_optimizer
         
-        self.actor_optimizer = optim.Adam(
-            self.actor_local.parameters(), lr=self.lr_actor)
-
         # Critic Network (w/ Target Network)
-        self.critic_local = Critic(state_size, action_size, seed, fc1_units=self.critic_units[0],
-                                   fc2_units=self.critic_units[1]).to(device)
+        if Agent.critic_local is None:
+            Agent.critic_local = Critic(self.state_size, self.action_size, self.random_seed,
+                                        fc1_units=self.critic_units[0], fc2_units=self.critic_units[1]).to(device)
+        if Agent.critic_target is None:
+            Agent.critic_target = Critic(self.state_size, self.action_size, self.random_seed,
+                                         fc1_units=self.critic_units[0], fc2_units=self.critic_units[1]).to(device)
+        if Agent.critic_optimizer is None:
+            Agent.critic_optimizer = optim.Adam(Agent.critic_local.parameters(), lr=self.lr_critic, weight_decay=self.weight_decay)
+            
+        self.critic_local = Agent.critic_local
+        self.critic_target = Agent.critic_target
+        self.critic_optimizer = Agent.critic_optimizer
         
-        self.critic_target = Critic(state_size, action_size, seed, fc1_units=self.critic_units[0],
-                                   fc2_units=self.critic_units[1]).to(device)
-        
-        self.critic_optimizer = optim.Adam(self.critic_local.parameters(),
-                                           lr=self.lr_critic, weight_decay=self.weight_decay)
-
         # Noise process
-        self.noise = OUNoise(action_size, seed)
+        self.noise = OUNoise(self.action_size, self.random_seed)
 
         # Define memory
-        self.memory = ReplayMemory(self.memory_size, self.batch_size, self.seed)
-        
+        if Agent.memory is None:
+            Agent.memory = ReplayMemory(self.memory_size, self.batch_size, self.random_seed)
+            
         # Initialize time step (for updating every UPDATE_EVERY steps)
         self._time_step = 0
         
     def step(self, state, action, reward, next_state, done):
         """Save experience in replay memory, and use random sample from buffer to learn."""
         # Save experience / reward
-        self.memory.add(state, action, reward, next_state, done)
+        Agent.memory.add(state, action, reward, next_state, done)
 
         # Learn every UPDATE_EVERY time steps.
         self._time_step = (self._time_step + 1) % self.batch_size
-        if self._time_step == 0:    
+        if self._time_step == 0:
             # Learn, if enough samples are available in memory
-            if len(self.memory) > self.batch_size:
+            if len(Agent.memory) > self.batch_size:
                 for i in range(self.batch_size):
-                    experiences = self.memory.sample()
+                    experiences = Agent.memory.sample()
                     self.learn(experiences, self.gamma)
 
     def act(self, state, add_noise=True):
@@ -105,7 +125,7 @@ class Agent(BaseEstimator):
         self.actor_local.train()
         if add_noise:
             action += self.noise.sample()
-        return np.clip(action, self.action_min, self.action_max)
+        return np.clip(action, -1, 1)
 
     def reset(self):
         self.noise.reset()
@@ -118,12 +138,12 @@ class Agent(BaseEstimator):
             critic_target(state, action) -> Q-value
         Params
         ======
-            experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', done) tuples 
+            experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', done) tuples
             gamma (float): discount factor
         """
         states, actions, rewards, next_states, dones = experiences
 
-        # UPDATE CRITIC
+        # ---------------------------- update critic ---------------------------- #
         # Get predicted next-state actions and Q values from target models
         actions_next = self.actor_target(next_states)
         Q_targets_next = self.critic_target(next_states, actions_next)
@@ -132,21 +152,24 @@ class Agent(BaseEstimator):
         # Compute critic loss
         Q_expected = self.critic_local(states, actions)
         critic_loss = F.mse_loss(Q_expected, Q_targets)
+                
         # Minimize the loss
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.critic_local.parameters(), 1)
         self.critic_optimizer.step()
 
-        # UPDATE ACTOR
+        # ---------------------------- update actor ---------------------------- #
         # Compute actor loss
         actions_pred = self.actor_local(states)
         actor_loss = -self.critic_local(states, actions_pred).mean()
+        
         # Minimize the loss
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         self.actor_optimizer.step()
-        
-        # UPDATE TARGET NETWORKS
+
+        # ----------------------- update target networks ----------------------- #
         self.soft_update(self.critic_local, self.critic_target, self.tau)
         self.soft_update(self.actor_local, self.actor_target, self.tau)
 
@@ -157,19 +180,31 @@ class Agent(BaseEstimator):
         ======
             local_model: PyTorch model (weights will be copied from)
             target_model: PyTorch model (weights will be copied to)
-            tau (float): interpolation parameter 
+            tau (float): interpolation parameter
         """
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
-            target_param.data.copy_(
-                tau*local_param.data + (1.0-tau)*target_param.data)
+            target_param.data.copy_(tau*local_param.data + (1.0-tau)*target_param.data)
 
-    def save_model(self, actor_path='checkpoint_actor.pth', critic_path='checkpoint_critic.pth'):
-        torch.save(self.actor_local.state_dict(), actor_path)
-        torch.save(self.critic_local.state_dict(), critic_path)
+    def save_model(actor_path='checkpoint_actor.pth', critic_path='checkpoint_critic.pth', params=None, params_path="agent_params.json"):
+        # Save params
+        if isinstance(params, dict) and isinstance(params_path, str):
+            with open(params_path, 'w') as outfile:
+                json.dump(params, outfile)
+        # Save actor weights
+        torch.save(Agent.actor_local.state_dict(), actor_path)
+        # Save critic weights
+        torch.save(Agent.critic_local.state_dict(), critic_path)
         
-    def load_model(self, actor_path='checkpoint_actor.pth', critic_path='checkpoint_critic.pth'):
-        self.actor_local.load_state_dict(torch.load(actor_path))
-        self.critic_local.load_state_dict(torch.load(critic_path))
+    def load_model(actor_path='checkpoint_actor.pth', critic_path='checkpoint_critic.pth', params_path="agent_params.json"):
+        
+        # Load params
+        with open(params_path) as json_file:
+            params = json.load(json_file)
+
+        agent = Agent(**params)
+        agent.actor_local.load_state_dict(torch.load(actor_path))
+        agent.critic_local.load_state_dict(torch.load(critic_path))
+        return agent
         
 class OUNoise:
     """Ornstein-Uhlenbeck process."""
@@ -189,7 +224,6 @@ class OUNoise:
     def sample(self):
         """Update internal state and return it as a noise sample."""
         x = self.state
-        dx = self.theta * (self.mu - x) + self.sigma * \
-            np.array([random.random() for i in range(len(x))])
+        dx = self.theta * (self.mu - x) + self.sigma * np.array([random.random() for i in range(len(x))])
         self.state = x + dx
         return self.state

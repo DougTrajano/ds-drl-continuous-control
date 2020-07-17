@@ -1,4 +1,7 @@
 numpy
+matplotlib
+torch
+sklearn
 tqdm
 unityagents
 sklearn

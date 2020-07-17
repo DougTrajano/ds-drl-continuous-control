@@ -1,4 +1,5 @@
 import numpy as np
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -37,7 +38,7 @@ class Actor(nn.Module):
         """Build an actor (policy) network that maps states -> actions."""
         x = F.relu(self.fc1(state))
         x = F.relu(self.fc2(x))
-        return F.tanh(self.fc3(x))
+        return torch.tanh(self.fc3(x))
 
 
 class Critic(nn.Module):
@@ -67,7 +68,7 @@ class Critic(nn.Module):
 
     def forward(self, state, action):
         """Build a critic (value) network that maps (state, action) pairs -> Q-values."""
-        xs = F.relu(self.fc1(state))
-        x = torch.cat((xs, action.float()), dim=1)
-        x = F.relu(self.fc2(x))
+        xs = F.leaky_relu(self.fc1(state))
+        x = torch.cat((xs, action), dim=1)
+        x = F.leaky_relu(self.fc2(x))
         return self.fc3(x)
