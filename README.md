@@ -1,12 +1,12 @@
 # Continuous Control with Deep Reinforcement Learning
 
-This project contains an agent based on **Deep Reinforcement Learning** that can learn from zero (no labeled data) to control a robotic arm to reach a ball.
+This project contains an agent based on **Deep Reinforcement Learning** that can learn from zero (no labeled data) to control a double-jointed arm to reach a ball.
 
 It's use the [Unity Machine Learning Agents Toolkit](https://github.com/Unity-Technologies/ml-agents) to design, train, and evaluate deep reinforcement learning algorithms implementations.
 
 The environment used for this project is the Udacity version of the [Reacher Environment](https://github.com/Unity-Technologies/ml-agents/blob/master/docs/Learning-Environment-Examples.md#reacher), from [Unity](https://unity3d.com/pt/machine-learning).
 
-We have two separate versions of the Unity environment:
+We have two versions for this Unity environment:
 
 #### Version 1: One (1) Agent
 
